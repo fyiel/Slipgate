@@ -63,11 +63,20 @@ class NexusRecipe(Recipe):
 
         res: SolverResult | None = None
         async with client.session_lock(self.SESSION):
-            # Reuse the warm session; on a session error (expiry / FlareSolverr
-            # restart) reset it and retry once with a fresh one.
+            # Fast path first: POST the generate endpoint directly. Nexus's
+            # download countdown is client-side, so no page visit or wait is
+            # required; FlareSolverr clears Cloudflare on this navigation and the
+            # seeded session cookie authenticates it. This turns a ~18s resolve
+            # into a couple of seconds. On a session error (expiry / FlareSolverr
+            # restart) reset and retry once with a fresh session.
             for attempt in (1, 2):
                 try:
                     await client.ensure_session(self.SESSION)
+                    res = await client.post(GENERATE_URL, body, cookies=cookies, session=self.SESSION)
+                    if _extract_uri(res.response_text):
+                        break
+                    # Fallback: a file page may still gate the generate on a
+                    # recent visit, so load it, wait out the countdown, and retry.
                     await client.get(file_page, cookies=cookies, session=self.SESSION)
                     await asyncio.sleep(FREE_WAIT_SECS)
                     res = await client.post(GENERATE_URL, body, cookies=cookies, session=self.SESSION)

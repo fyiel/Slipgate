@@ -4,6 +4,16 @@ All notable changes to Slipgate, the self-hosted challenge-solving download
 resolver for [Union.Manifold](https://github.com/fyiel/Union.Manifold) and any
 other client.
 
+## 0.3.1
+
+### Changed
+
+- the Nexus recipe tries the generate call directly first, skipping the 4.7MB
+  file-page load and the countdown wait that dominated resolve time. Nexus's
+  download countdown is client-side, so a warm resolve now returns in a couple of
+  seconds instead of ~18s; it falls back to the full page-visit-plus-wait flow
+  only if the direct call yields nothing
+
 ## 0.3.0
 
 ### Changed

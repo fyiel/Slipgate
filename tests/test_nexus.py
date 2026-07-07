@@ -37,8 +37,8 @@ async def test_resolve_returns_generated_cdn_url():
     assert any(c.name == "cf_clearance" for c in res.cookies)
     # The recipe ensures (reuses) a warm session and never tears it down per call.
     assert client.ensured == 1 and client.reset == 0
-    assert client.calls[0][0] == "get"
-    assert client.calls[1][0] == "post" and client.calls[1][1] == GENERATE_URL
+    # Fast path: one direct POST to the generate endpoint, no page visit.
+    assert client.calls == [("post", GENERATE_URL, "fid=1000&game_id=1704")]
 
 
 @pytest.mark.usefixtures("fast_wait")
