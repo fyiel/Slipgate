@@ -6,6 +6,8 @@ and recipes run with no FlareSolverr and no network.
 
 from __future__ import annotations
 
+import asyncio
+
 import pytest
 
 from slipgate.solver import SolverError, SolverResult
@@ -25,8 +27,9 @@ class FakeSolverrClient:
         self.post_result = post_result or SolverResult(status=200, response_text="<pre>[]</pre>")
         self.raise_on = raise_on
         self.calls: list[tuple] = []
-        self.created = 0
-        self.destroyed = 0
+        self.ensured = 0
+        self.reset = 0
+        self._lock = asyncio.Lock()
 
     async def close(self) -> None:
         pass
@@ -34,12 +37,14 @@ class FakeSolverrClient:
     async def reachable(self) -> bool:
         return self._reachable
 
-    async def create_session(self) -> str:
-        self.created += 1
-        return "sess-1"
+    def session_lock(self, name: str) -> asyncio.Lock:
+        return self._lock
 
-    async def destroy_session(self, session: str) -> None:
-        self.destroyed += 1
+    async def ensure_session(self, name: str) -> None:
+        self.ensured += 1
+
+    async def reset_session(self, name: str) -> None:
+        self.reset += 1
 
     async def get(self, url, *, cookies=None, session="", max_timeout_ms=None) -> SolverResult:
         self.calls.append(("get", url))

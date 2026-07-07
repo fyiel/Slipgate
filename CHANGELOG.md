@@ -4,6 +4,17 @@ All notable changes to Slipgate, the self-hosted challenge-solving download
 resolver for [Union.Manifold](https://github.com/fyiel/Union.Manifold) and any
 other client.
 
+## 0.3.0
+
+### Changed
+
+- resolves now reuse one warm FlareSolverr session instead of creating and
+  destroying a fresh browser per request. the browser spin-up and the Cloudflare
+  solve are paid once, so the first resolve is as slow as before but every
+  subsequent one is much faster. requests to the shared session are serialized
+  and each re-seeds its own cookies, so it stays correct across users, and a
+  session that expires or dies is reset and retried once automatically
+
 ## 0.2.0
 
 Reworked to wrap FlareSolverr instead of driving its own browser.

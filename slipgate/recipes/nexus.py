@@ -23,7 +23,7 @@ import re
 from html import unescape
 
 from ..models import Cookie, ResolveRequest, ResolveResponse
-from ..solver import FlareSolverrClient, SolverError
+from ..solver import FlareSolverrClient, SolverError, SolverResult
 from .base import Recipe
 
 WWW = "https://www.nexusmods.com"
@@ -41,6 +41,9 @@ _PRE_RE = re.compile(r"<pre[^>]*>(.*?)</pre>", re.DOTALL | re.IGNORECASE)
 class NexusRecipe(Recipe):
     name = "nexusmods"
     hosts = ("nexusmods", "nexus", "nexusmods.com")
+    # One warm FlareSolverr session, reused across resolves so the browser and
+    # Cloudflare solve are paid once. Requests serialize on the session's lock.
+    SESSION = "slipgate-nexusmods"
 
     async def resolve(self, client: FlareSolverrClient, req: ResolveRequest) -> ResolveResponse:
         missing = [k for k in ("domain", "mod_id", "file_id", "game_id") if not req.params.get(k)]
@@ -56,19 +59,26 @@ class NexusRecipe(Recipe):
         cookies = [Cookie(name=c.name, value=c.value, domain=".nexusmods.com", path="/") for c in req.cookies]
 
         file_page = req.page_url or f"{WWW}/{domain}/mods/{mod_id}?tab=files&file_id={file_id}"
-        session = ""
-        try:
-            session = await client.create_session()
-            await client.get(file_page, cookies=cookies, session=session)
-            await asyncio.sleep(FREE_WAIT_SECS)
-            body = f"fid={file_id}&game_id={game_id}"
-            res = await client.post(GENERATE_URL, body, cookies=cookies, session=session)
-        except SolverError as exc:
-            return ResolveResponse(ok=False, error=str(exc))
-        finally:
-            if session:
-                await client.destroy_session(session)
+        body = f"fid={file_id}&game_id={game_id}"
 
+        res: SolverResult | None = None
+        async with client.session_lock(self.SESSION):
+            # Reuse the warm session; on a session error (expiry / FlareSolverr
+            # restart) reset it and retry once with a fresh one.
+            for attempt in (1, 2):
+                try:
+                    await client.ensure_session(self.SESSION)
+                    await client.get(file_page, cookies=cookies, session=self.SESSION)
+                    await asyncio.sleep(FREE_WAIT_SECS)
+                    res = await client.post(GENERATE_URL, body, cookies=cookies, session=self.SESSION)
+                    break
+                except SolverError as exc:
+                    await client.reset_session(self.SESSION)
+                    if attempt == 2:
+                        return ResolveResponse(ok=False, error=str(exc))
+
+        if res is None:
+            return ResolveResponse(ok=False, error="resolve failed")
         url = _extract_uri(res.response_text)
         if not url:
             return ResolveResponse(

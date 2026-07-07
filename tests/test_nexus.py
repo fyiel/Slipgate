@@ -35,9 +35,8 @@ async def test_resolve_returns_generated_cdn_url():
     assert res.download_url == "https://cdn.nexus/file.zip?token=x"
     assert res.user_agent == "Chrome/Real"
     assert any(c.name == "cf_clearance" for c in res.cookies)
-    # The recipe warms a session (get file page) then posts the generate call, and
-    # always tears the session down.
-    assert client.created == 1 and client.destroyed == 1
+    # The recipe ensures (reuses) a warm session and never tears it down per call.
+    assert client.ensured == 1 and client.reset == 0
     assert client.calls[0][0] == "get"
     assert client.calls[1][0] == "post" and client.calls[1][1] == GENERATE_URL
 

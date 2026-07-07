@@ -9,6 +9,7 @@ single `/v1` endpoint.
 
 from __future__ import annotations
 
+import asyncio
 from dataclasses import dataclass, field
 
 import httpx
@@ -34,6 +35,14 @@ class FlareSolverrClient:
         self._url = base_url
         self._default_timeout_ms = default_timeout_ms
         self._http = httpx.AsyncClient(timeout=http_timeout_secs)
+        # One warm FlareSolverr session is reused across resolves so the browser
+        # spin-up and the Cloudflare solve are paid once, not per request. Use of
+        # a session is serialized by its lock (one browser cannot run two
+        # navigations at once) and each resolve re-seeds its own cookies under
+        # that lock, so sharing a session is safe even across users.
+        self._session_locks: dict[str, asyncio.Lock] = {}
+        self._ensured: set[str] = set()
+        self._ensure_lock = asyncio.Lock()
 
     async def close(self) -> None:
         await self._http.aclose()
@@ -58,17 +67,33 @@ class FlareSolverrClient:
         except SolverError:
             return False
 
-    async def create_session(self) -> str:
-        data = await self._cmd({"cmd": "sessions.create"})
-        return data.get("session", "")
+    def session_lock(self, name: str) -> asyncio.Lock:
+        lock = self._session_locks.get(name)
+        if lock is None:
+            lock = asyncio.Lock()
+            self._session_locks[name] = lock
+        return lock
 
-    async def destroy_session(self, session: str) -> None:
-        if not session:
+    async def ensure_session(self, name: str) -> None:
+        """Create the named FlareSolverr session once, then reuse it. After the
+        first call this is just a set-membership check."""
+        if name in self._ensured:
             return
+        async with self._ensure_lock:
+            if name in self._ensured:
+                return
+            data = await self._cmd({"cmd": "sessions.list"})
+            if name not in (data.get("sessions") or []):
+                await self._cmd({"cmd": "sessions.create", "session": name})
+            self._ensured.add(name)
+
+    async def reset_session(self, name: str) -> None:
+        """Drop a session that went bad (FlareSolverr restart, expiry) so the next
+        ensure_session recreates a fresh one."""
+        self._ensured.discard(name)
         try:
-            await self._cmd({"cmd": "sessions.destroy", "session": session})
+            await self._cmd({"cmd": "sessions.destroy", "session": name})
         except SolverError:
-            # A best-effort cleanup; a leaked session times out on its own.
             pass
 
     async def get(
