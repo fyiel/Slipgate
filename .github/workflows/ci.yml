@@ -1,0 +1,44 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v3
+      - name: Create venv
+        run: uv venv --python 3.12
+      - name: Install
+        run: uv pip install -e ".[dev]"
+      - name: Lint
+        run: uv run ruff check .
+      - name: Test
+        run: uv run pytest -q
+
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Assert version single-source
+        run: |
+          set -euo pipefail
+          proj=$(awk -F'"' '/^version = /{print $2; exit}' pyproject.toml)
+          init=$(awk -F'"' '/__version__ = /{print $2; exit}' slipgate/__init__.py)
+          if [ "$proj" != "$init" ]; then
+            echo "::error::version drift: pyproject.toml=$proj __init__.py=$init"
+            exit 1
+          fi
+          echo "versions aligned at $proj"

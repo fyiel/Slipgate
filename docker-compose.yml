@@ -1,0 +1,15 @@
+services:
+  slipgate:
+    build: .
+    image: ghcr.io/fyiel/slipgate:latest
+    restart: unless-stopped
+    # Published only on the host loopback. Set SLIPGATE_API_KEY and change this
+    # mapping if you must reach it from another machine, and put TLS in front.
+    ports:
+      - "127.0.0.1:8191:8191"
+    environment:
+      # Uncomment to require a key on every /resolve call.
+      # SLIPGATE_API_KEY: "change-me"
+      SLIPGATE_LOG_LEVEL: info
+    # Chrome writes to /dev/shm; the default 64MB is too small and causes crashes.
+    shm_size: "1gb"
