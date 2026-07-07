@@ -1,38 +1,41 @@
 # Slipgate
 
-Self-hosted, challenge-solving download resolver. It drives a real browser
-(nodriver-controlled Chrome) to slip through Cloudflare and similar gates that a
-plain HTTP client cannot, runs a per-host recipe to obtain a direct download URL,
-and returns that URL so your own downloader can fetch the file.
+Self-hosted, challenge-solving download resolver. It wraps
+[FlareSolverr](https://github.com/FlareSolverr/FlareSolverr) (which clears
+Cloudflare-style gates with a real browser) and adds the part FlareSolverr does
+not do: per-host recipes that turn a gated page into a **direct download URL**,
+so your own downloader can fetch the file.
 
 Built as a companion to [Union.Manifold](https://github.com/fyiel/Union.Manifold),
-but it is a standalone HTTP service with a small, generic API, so anything can
-call it.
+but it is a standalone HTTP service with a small, generic API.
 
 ## Why
 
 Some file hosts (NexusMods free downloads and others) gate their download links
 behind a Cloudflare JS/TLS challenge. A normal HTTP client fails that challenge
 even with valid cookies, because Cloudflare fingerprints the TLS handshake, not
-just the session. A real browser clears it. Slipgate runs that browser for you,
-once, behind an API, so the rest of your tooling can keep using a plain
-downloader.
+just the session. FlareSolverr clears it with a real browser; Slipgate then knows
+how to walk a given host from a cleared page to the actual download link.
 
 ## Quickstart
 
 ```sh
-docker compose up -d
-curl localhost:8191/health
+docker compose up -d      # starts FlareSolverr and Slipgate together
+curl localhost:8189/health
 ```
 
-By default the service binds to `127.0.0.1:8191` and runs Chrome headless.
+`flaresolverr_ok: true` in the health response means Slipgate can reach the
+solver. Slipgate binds to `127.0.0.1:8189` by default (FlareSolverr keeps 8191).
+
+Already running FlareSolverr? Skip the bundled one and point Slipgate at yours
+with `SLIPGATE_FLARESOLVERR_URL`.
 
 ## API
 
 ### `GET /health`
 
 ```json
-{ "ok": true, "version": "0.1.0", "engine_ready": true, "recipes": ["nexusmods"] }
+{ "ok": true, "version": "0.2.0", "flaresolverr_ok": true, "recipes": ["nexusmods"] }
 ```
 
 ### `POST /resolve`
@@ -42,7 +45,7 @@ Resolve a gated page to a direct download URL.
 ```json
 {
   "host": "nexusmods",
-  "params": { "domain": "skyrimspecialedition", "mod_id": "266", "file_id": "1000", "game_id": "110" },
+  "params": { "domain": "skyrimspecialedition", "mod_id": "266", "file_id": "1000", "game_id": "1704" },
   "cookies": [{ "name": "nexusmods_session", "value": "<your session>" }]
 }
 ```
@@ -53,8 +56,6 @@ Response:
 {
   "ok": true,
   "download_url": "https://<cdn>/...",
-  "file_name": "",
-  "size_bytes": 0,
   "cookies": [{ "name": "cf_clearance", "value": "..." }],
   "user_agent": "Mozilla/5.0 ...",
   "needs_interactive": false,
@@ -63,7 +64,7 @@ Response:
 ```
 
 `cookies` in the request seed a logged-in session (for hosts that need one). You
-never paste `cf_clearance`; the browser mints it. `cookies` in the response are
+never paste `cf_clearance`; FlareSolverr mints it. `cookies` in the response are
 what the browser held after clearing the gate, so a caller that downloads the URL
 itself can present a matching session if the file host also checks it.
 
@@ -75,13 +76,12 @@ All settings are read from the environment with the `SLIPGATE_` prefix (or a
 | Variable | Default | Meaning |
 | --- | --- | --- |
 | `SLIPGATE_HOST` | `127.0.0.1` | Bind address. Keep it on loopback unless you set an API key. |
-| `SLIPGATE_PORT` | `8191` | Bind port. |
+| `SLIPGATE_PORT` | `8189` | Bind port (FlareSolverr uses 8191). |
 | `SLIPGATE_API_KEY` | (empty) | When set, every `/resolve` needs `X-Slipgate-Key`. |
-| `SLIPGATE_HEADLESS` | `true` | Run Chrome headless. |
-| `SLIPGATE_BROWSER_PATH` | (auto) | Explicit Chrome/Chromium path. |
-| `SLIPGATE_CHALLENGE_TIMEOUT_SECS` | `40` | How long to wait for a challenge to clear. |
-| `SLIPGATE_RESOLVE_TIMEOUT_SECS` | `90` | Overall per-request ceiling. |
-| `SLIPGATE_MAX_CONCURRENCY` | `2` | Concurrent browser tabs. |
+| `SLIPGATE_FLARESOLVERR_URL` | `http://localhost:8191/v1` | The FlareSolverr endpoint. |
+| `SLIPGATE_FLARESOLVERR_TIMEOUT_MS` | `60000` | Per-request maxTimeout handed to FlareSolverr. |
+| `SLIPGATE_RESOLVE_TIMEOUT_SECS` | `150` | Overall per-request ceiling. |
+| `SLIPGATE_MAX_CONCURRENCY` | `2` | Concurrent resolves. |
 
 ## Security
 
@@ -104,5 +104,5 @@ uv run ruff check .
 uv run pytest -q
 ```
 
-The test suite runs with no browser: the engine is faked. The nodriver engine and
-per-host recipes are verified against live hosts on a machine with Chrome.
+The test suite runs with no FlareSolverr and no network: the solver client is
+faked. Recipes are verified against live hosts through a real FlareSolverr.

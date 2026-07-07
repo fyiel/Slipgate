@@ -1,14 +1,15 @@
-"""NexusMods free manual-download recipe.
+"""NexusMods free manual-download recipe (via FlareSolverr).
 
 Free accounts get direct download links only through the website, behind a
-Cloudflare gate and a short wait. Doing this from a plain HTTP client fails on
-Cloudflare's TLS/JS fingerprinting even with valid cookies. Here a real browser
-loads the file page (clearing Cloudflare on its own), then calls the same
-GenerateDownloadUrl endpoint the site's "Slow download" button uses, from inside
-the page's own origin, and returns the signed CDN URL.
+Cloudflare gate and a short wait. FlareSolverr clears the gate; this recipe drives
+it: it loads the file page in a FlareSolverr session (so the generate call shares
+the same cleared, logged-in browser context and referer), waits out the free
+countdown, then POSTs the same GenerateDownloadUrl endpoint the site's "Slow
+download" button uses. Nexus answers with a JSON array of CDN mirrors; the first
+entry's URI is the direct download URL.
 
-The caller seeds a logged-in `nexusmods_session` cookie once; the browser mints
-cf_clearance itself, so no Cloudflare token needs to be pasted.
+The caller supplies a logged-in `nexusmods_session` cookie once; FlareSolverr
+mints the Cloudflare clearance itself.
 
 Inputs (ResolveRequest.params): domain, mod_id, file_id, game_id.
 game_id is the numeric NexusMods game id; the caller already resolves it.
@@ -18,50 +19,30 @@ from __future__ import annotations
 
 import asyncio
 import json
+import re
+from html import unescape
 
-from ..config import get_settings
-from ..engine import ChallengeError, Page, wait_cloudflare
 from ..models import Cookie, ResolveRequest, ResolveResponse
+from ..solver import FlareSolverrClient, SolverError
 from .base import Recipe
 
 WWW = "https://www.nexusmods.com"
+GENERATE_URL = f"{WWW}/Core/Libs/Common/Managers/Downloads?GenerateDownloadUrl"
 
 # Nexus enforces a short countdown before the free generate call succeeds. This
-# matches the site's wait; the recipe agent should confirm the exact duration.
+# matches the site's wait; tune against live Nexus if it changes.
 FREE_WAIT_SECS = 6.0
 
-# Same endpoint the site's manual "Slow download" button posts to.
-_GENERATE_JS = """
-(async () => {
-  try {
-    const r = await fetch("/Core/Libs/Common/Managers/Downloads?GenerateDownloadUrl", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8",
-        "X-Requested-With": "XMLHttpRequest",
-      },
-      body: "fid=%FID%&game_id=%GAME_ID%",
-      credentials: "include",
-    });
-    const text = await r.text();
-    try {
-      const j = JSON.parse(text);
-      return JSON.stringify({ ok: true, url: j.url || (Array.isArray(j) && j[0] && j[0].URI) || "" });
-    } catch (e) {
-      return JSON.stringify({ ok: false, error: "non-json response", status: r.status });
-    }
-  } catch (e) {
-    return JSON.stringify({ ok: false, error: String(e) });
-  }
-})()
-"""
+# FlareSolverr renders a JSON response inside Chrome's viewer, so the body arrives
+# wrapped in <pre>...</pre>. Pull the JSON back out of it.
+_PRE_RE = re.compile(r"<pre[^>]*>(.*?)</pre>", re.DOTALL | re.IGNORECASE)
 
 
 class NexusRecipe(Recipe):
     name = "nexusmods"
     hosts = ("nexusmods", "nexus", "nexusmods.com")
 
-    async def resolve(self, page: Page, req: ResolveRequest) -> ResolveResponse:
+    async def resolve(self, client: FlareSolverrClient, req: ResolveRequest) -> ResolveResponse:
         missing = [k for k in ("domain", "mod_id", "file_id", "game_id") if not req.params.get(k)]
         if missing:
             return ResolveResponse(ok=False, error=f"missing params: {', '.join(missing)}")
@@ -72,73 +53,46 @@ class NexusRecipe(Recipe):
 
         if not any(c.name == "nexusmods_session" for c in req.cookies):
             return ResolveResponse(ok=False, error="no nexusmods_session cookie supplied")
-
-        # Seed the login session on the Nexus domain before navigating so the
-        # first page load is already authenticated.
-        await page.set_cookies(
-            [Cookie(name=c.name, value=c.value, domain=".nexusmods.com", path="/") for c in req.cookies]
-        )
+        cookies = [Cookie(name=c.name, value=c.value, domain=".nexusmods.com", path="/") for c in req.cookies]
 
         file_page = req.page_url or f"{WWW}/{domain}/mods/{mod_id}?tab=files&file_id={file_id}"
-        await page.goto(file_page)
+        session = ""
         try:
-            await wait_cloudflare(page, get_settings().challenge_timeout_secs)
-        except ChallengeError as e:
-            return ResolveResponse(ok=False, error=str(e), needs_interactive=e.needs_interactive)
+            session = await client.create_session()
+            await client.get(file_page, cookies=cookies, session=session)
+            await asyncio.sleep(FREE_WAIT_SECS)
+            body = f"fid={file_id}&game_id={game_id}"
+            res = await client.post(GENERATE_URL, body, cookies=cookies, session=session)
+        except SolverError as exc:
+            return ResolveResponse(ok=False, error=str(exc))
+        finally:
+            if session:
+                await client.destroy_session(session)
 
-        # The generate call is rejected until the free countdown elapses.
-        await asyncio.sleep(FREE_WAIT_SECS)
-
-        script = _GENERATE_JS.replace("%FID%", file_id).replace("%GAME_ID%", game_id)
-        raw = await page.eval(script)
-        url = _extract_url(raw)
-
-        if not url:
-            # Fall back to clicking the visible manual-download control and
-            # intercepting whatever file URL the page fires.
-            url = await _click_and_capture(page)
-
+        url = _extract_uri(res.response_text)
         if not url:
             return ResolveResponse(
                 ok=False,
                 error="could not obtain a download url; the session may be logged out "
-                "or the file page layout changed",
+                "or the free wait was too short",
             )
-
-        cookies = await page.get_cookies()
-        return ResolveResponse(
-            ok=True,
-            download_url=url,
-            user_agent=await page.user_agent(),
-            cookies=cookies,
-        )
+        return ResolveResponse(ok=True, download_url=url, cookies=res.cookies, user_agent=res.user_agent)
 
 
-def _extract_url(raw: object) -> str:
-    """Parse the JSON string returned by the injected generate script."""
-    if not raw:
+def _extract_uri(text: str) -> str:
+    """Pull the first CDN URI out of the generate response. Nexus returns an array
+    of mirror objects (each with a URI); a logged-out request returns an empty
+    array, which yields no URL."""
+    if not text:
         return ""
+    match = _PRE_RE.search(text)
+    raw = unescape(match.group(1)).strip() if match else text.strip()
     try:
-        data = json.loads(raw) if isinstance(raw, str) else raw
+        data = json.loads(raw)
     except (json.JSONDecodeError, TypeError):
         return ""
-    if isinstance(data, dict) and data.get("ok"):
-        return str(data.get("url") or "")
-    return ""
-
-
-async def _click_and_capture(page: Page) -> str:
-    """Best-effort fallback: click the manual/slow download button and capture
-    the resulting download URL. Selectors are verified against live Nexus by the
-    recipe owner; failure here simply yields an empty URL."""
-    for selector in (
-        "a#slowDownloadButton",
-        "a.btn[href*='file_id']",
-        "button[data-download-url]",
-    ):
-        if await page.wait_for_selector(selector, timeout=2.0):
-            await page.click(selector)
-            captured = await page.capture_download(timeout=15.0)
-            if captured:
-                return captured
+    if isinstance(data, list) and data and isinstance(data[0], dict):
+        return str(data[0].get("URI") or data[0].get("uri") or "")
+    if isinstance(data, dict):
+        return str(data.get("url") or data.get("URI") or "")
     return ""

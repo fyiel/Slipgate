@@ -1,15 +1,24 @@
 services:
+  # Clears Cloudflare-style gates with a real browser. Slipgate talks to it over
+  # the internal compose network; it is not published to the host.
+  flaresolverr:
+    image: ghcr.io/flaresolverr/flaresolverr:latest
+    restart: unless-stopped
+    environment:
+      LOG_LEVEL: info
+
   slipgate:
     build: .
     image: ghcr.io/fyiel/slipgate:latest
+    depends_on:
+      - flaresolverr
     restart: unless-stopped
     # Published only on the host loopback. Set SLIPGATE_API_KEY and change this
     # mapping if you must reach it from another machine, and put TLS in front.
     ports:
-      - "127.0.0.1:8191:8191"
+      - "127.0.0.1:8189:8189"
     environment:
+      SLIPGATE_FLARESOLVERR_URL: http://flaresolverr:8191/v1
+      SLIPGATE_LOG_LEVEL: info
       # Uncomment to require a key on every /resolve call.
       # SLIPGATE_API_KEY: "change-me"
-      SLIPGATE_LOG_LEVEL: info
-    # Chrome writes to /dev/shm; the default 64MB is too small and causes crashes.
-    shm_size: "1gb"

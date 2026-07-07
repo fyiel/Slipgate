@@ -52,5 +52,5 @@ class ResolveResponse(BaseModel):
 class HealthResponse(BaseModel):
     ok: bool
     version: str
-    engine_ready: bool
+    flaresolverr_ok: bool
     recipes: list[str]

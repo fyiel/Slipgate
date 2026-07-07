@@ -4,8 +4,8 @@ build-backend = "hatchling.build"
 
 [project]
 name = "slipgate"
-version = "0.1.0"
-description = "Self-hosted challenge-solving download resolver. Slips through Cloudflare and similar gates using a real browser, returns a direct download URL."
+version = "0.2.0"
+description = "Self-hosted challenge-solving download resolver. Wraps FlareSolverr to slip through Cloudflare-style gates and returns a direct download URL."
 readme = "README.md"
 license = { file = "LICENSE" }
 authors = [{ name = "fyiel" }]
@@ -15,14 +15,13 @@ dependencies = [
     "uvicorn[standard]>=0.30",
     "pydantic>=2.7",
     "pydantic-settings>=2.3",
-    "nodriver>=0.50",
+    "httpx>=0.27",
 ]
 
 [project.optional-dependencies]
 dev = [
     "pytest>=8",
     "pytest-asyncio>=0.23",
-    "httpx>=0.27",
     "ruff>=0.6",
 ]
 
