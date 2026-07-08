@@ -54,3 +54,17 @@ class HealthResponse(BaseModel):
     version: str
     flaresolverr_ok: bool
     recipes: list[str]
+
+
+class FetchRequest(BaseModel):
+    # The URL to fetch through the solver's browser (and proxy, if configured).
+    url: str
+
+
+class FetchResponse(BaseModel):
+    ok: bool
+    status: int = 0
+    # The document body. For a JSON endpoint the browser's JSON view is decoded
+    # back to the raw JSON text; otherwise this is the page HTML.
+    body: str = ""
+    error: str = ""

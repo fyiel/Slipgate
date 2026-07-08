@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import asyncio
 from dataclasses import dataclass, field
+from urllib.parse import urlsplit, urlunsplit
 
 import httpx
 
@@ -31,10 +32,35 @@ class SolverError(Exception):
     """FlareSolverr was unreachable or returned a non-ok status."""
 
 
+def _parse_proxy(proxy_url: str) -> dict | None:
+    """Split a proxy URL into FlareSolverr's shape. FlareSolverr hands the URL to
+    Chrome's --proxy-server, which rejects embedded credentials, so username and
+    password must travel as separate fields."""
+    if not proxy_url:
+        return None
+    parts = urlsplit(proxy_url if "://" in proxy_url else f"http://{proxy_url}")
+    if not parts.hostname:
+        return None
+    netloc = parts.hostname + (f":{parts.port}" if parts.port else "")
+    out: dict = {"url": urlunsplit((parts.scheme or "http", netloc, "", "", ""))}
+    if parts.username:
+        out["username"] = parts.username
+    if parts.password:
+        out["password"] = parts.password
+    return out
+
+
 class FlareSolverrClient:
-    def __init__(self, base_url: str, default_timeout_ms: int, http_timeout_secs: float) -> None:
+    def __init__(
+        self,
+        base_url: str,
+        default_timeout_ms: int,
+        http_timeout_secs: float,
+        proxy: str = "",
+    ) -> None:
         self._url = base_url
         self._default_timeout_ms = default_timeout_ms
+        self._proxy = _parse_proxy(proxy)
         self._http = httpx.AsyncClient(timeout=http_timeout_secs)
         # One warm FlareSolverr session is reused across resolves so the browser
         # spin-up and the Cloudflare solve are paid once, not per request. Use of
@@ -137,6 +163,8 @@ class FlareSolverrClient:
             payload["session"] = session
         if cookies:
             payload["cookies"] = [self._cookie(c) for c in cookies]
+        if self._proxy:
+            payload["proxy"] = self._proxy
         return payload
 
     @staticmethod

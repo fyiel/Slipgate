@@ -32,6 +32,13 @@ class Settings(BaseSettings):
     # exceed flaresolverr_timeout_ms so a slow challenge is not cut off locally.
     flaresolverr_http_timeout_secs: float = 90.0
 
+    # Optional upstream proxy for the solver's browser. When set, every
+    # FlareSolverr request routes through it — point it at a residential/clean
+    # egress to reach hosts Cloudflare challenges by datacenter IP. Credentials
+    # may be embedded (http://user:pass@host:port); Slipgate splits them out for
+    # FlareSolverr, which takes username/password as separate fields.
+    proxy_url: str = ""
+
     # Overall per-resolve ceiling (a recipe may make several FlareSolverr calls).
     resolve_timeout_secs: float = 150.0
     # Ceiling on concurrent resolves so a burst cannot exhaust FlareSolverr.

@@ -4,6 +4,22 @@ All notable changes to Slipgate, the self-hosted challenge-solving download
 resolver for [Union.Manifold](https://github.com/fyiel/Union.Manifold) and any
 other client.
 
+## 0.5.0
+
+### Added
+
+- optional upstream proxy (`SLIPGATE_PROXY_URL`). when set, every FlareSolverr
+  request routes the browser through it, so a datacenter host can borrow a
+  residential/clean egress to reach sites Cloudflare challenges by IP.
+  credentials may be embedded in the URL and are split into FlareSolverr's
+  separate username/password fields (Chrome's `--proxy-server` rejects inline
+  credentials).
+- new `POST /fetch` endpoint: fetches a URL through the solver's browser (and
+  proxy) and returns its body, with no per-host recipe. it exists to pull a
+  Cloudflare-gated static resource — such as a source-catalogue JSON — that a
+  plain HTTP client cannot retrieve from a challenged IP; Chrome's JSON view is
+  decoded back to raw JSON before returning.
+
 ## 0.4.1
 
 ### Fixed

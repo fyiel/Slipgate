@@ -9,13 +9,16 @@ optional API key guards `/resolve`.
 from __future__ import annotations
 
 import asyncio
+import html
+import json
+import re
 from contextlib import asynccontextmanager
 
 from fastapi import Depends, FastAPI, Header, HTTPException
 
 from . import __version__
 from .config import Settings, get_settings
-from .models import HealthResponse, ResolveRequest, ResolveResponse
+from .models import FetchRequest, FetchResponse, HealthResponse, ResolveRequest, ResolveResponse
 from .recipes import get_recipe, recipe_names
 from .solver import FlareSolverrClient
 
@@ -29,6 +32,7 @@ async def lifespan(app: FastAPI):
         settings.flaresolverr_url,
         settings.flaresolverr_timeout_ms,
         settings.flaresolverr_http_timeout_secs,
+        proxy=settings.proxy_url,
     )
     app.state.solver = client
     try:
@@ -71,3 +75,45 @@ async def resolve(req: ResolveRequest, settings: Settings = Depends(get_settings
         return ResolveResponse(ok=False, error="resolve timed out")
     except Exception as exc:  # noqa: BLE001 - never leak a stack trace to the client
         return ResolveResponse(ok=False, error=f"resolve failed: {exc}")
+
+
+def _document_text(response_html: str) -> str:
+    """FlareSolverr returns the browser-rendered DOM. For a JSON endpoint Chrome
+    wraps the body in its JSON viewer, so stripping tags and unescaping recovers
+    the original JSON text; anything that does not parse as JSON is returned as
+    the raw page HTML for the caller to handle."""
+    if not response_html:
+        return ""
+    stripped = html.unescape(re.sub(r"<[^>]+>", "", response_html)).strip()
+    if stripped[:1] in "{[":
+        try:
+            json.loads(stripped)
+            return stripped
+        except ValueError:
+            pass
+    return response_html
+
+
+@app.post("/fetch", response_model=FetchResponse, dependencies=[Depends(require_key)])
+async def fetch(req: FetchRequest, settings: Settings = Depends(get_settings)) -> FetchResponse:
+    """Fetch a URL through the solver's browser (and proxy, if configured) and
+    return its body. Unlike /resolve this runs no per-host recipe: it exists to
+    pull a Cloudflare-gated static resource (for example a source catalogue JSON)
+    that a plain HTTP client cannot retrieve from a challenged IP."""
+    client = getattr(app.state, "solver", None)
+    if client is None:
+        return FetchResponse(ok=False, error="solver client is not initialized")
+    try:
+        result = await asyncio.wait_for(client.get(req.url), timeout=settings.resolve_timeout_secs)
+    except TimeoutError:
+        return FetchResponse(ok=False, error="fetch timed out")
+    except Exception as exc:  # noqa: BLE001 - never leak a stack trace to the client
+        return FetchResponse(ok=False, error=f"fetch failed: {exc}")
+    body = _document_text(result.response_text)
+    ok = result.status == 200 and bool(body)
+    return FetchResponse(
+        ok=ok,
+        status=result.status,
+        body=body,
+        error="" if ok else f"upstream status {result.status}",
+    )
