@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "slipgate"
-version = "0.4.1"
+version = "0.5.0"
 description = "Self-hosted challenge-solving download resolver. Wraps FlareSolverr to slip through Cloudflare-style gates and returns a direct download URL."
 readme = "README.md"
 license = { file = "LICENSE" }
