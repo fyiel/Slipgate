@@ -75,13 +75,15 @@ async def test_missing_page_url_fails_fast():
 
 
 async def test_gated_response_is_clean_failure():
-    # GET has no link and the POST fallback returns no link either.
+    # GET has no link and the POST fallback returns no link either: the Turnstile
+    # widget was not solved, so we surface an honest needs_interactive failure.
     client = FakeSolverrClient(
         post_result=SolverResult(status=200, response_text="<pre>{\"error\":\"turnstile\"}</pre>")
     )
     res = await RECIPE.resolve(client, _req())
     assert not res.ok
-    assert "no download link" in res.error
+    assert res.needs_interactive is True
+    assert "Turnstile" in res.error
 
 
 async def test_solver_error_on_get_surfaces():

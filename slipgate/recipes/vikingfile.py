@@ -69,7 +69,14 @@ class VikingFileRecipe(Recipe):
                         )
                     return ResolveResponse(
                         ok=False,
-                        error="no download link; the Turnstile gate may be unsolved",
+                        needs_interactive=True,
+                        error=(
+                            "vikingfile gates the link behind a Cloudflare Turnstile "
+                            "widget; FlareSolverr clears Cloudflare's own challenge but "
+                            "does not solve embedded Turnstile widgets, so no token is "
+                            "minted. Resolving this host needs a Turnstile-solving "
+                            "service (e.g. CapSolver/2captcha)."
+                        ),
                     )
                 except SolverError as exc:
                     await client.reset_session(self.SESSION)

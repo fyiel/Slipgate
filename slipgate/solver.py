@@ -24,6 +24,7 @@ class SolverResult:
     cookies: list[Cookie] = field(default_factory=list)
     user_agent: str = ""
     message: str = ""
+    url: str = ""
 
 
 class SolverError(Exception):
@@ -162,4 +163,5 @@ class FlareSolverrClient:
             cookies=cookies,
             user_agent=sol.get("userAgent", "") or "",
             message=data.get("message", "") or "",
+            url=sol.get("url", "") or "",
         )

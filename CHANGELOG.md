@@ -4,6 +4,23 @@ All notable changes to Slipgate, the self-hosted challenge-solving download
 resolver for [Union.Manifold](https://github.com/fyiel/Union.Manifold) and any
 other client.
 
+## 0.4.1
+
+### Fixed
+
+- `datavaults` now returns a real link. A successful XFS `download2` is a 302 to
+  the CDN file, which FlareSolverr turns into a browser download and never
+  surfaces, so the recipe always failed. It now uses FlareSolverr only to clear
+  any Cloudflare gate (and adopt its User-Agent + cookies), then replays the
+  `download1`/`download2` form POSTs with a plain HTTP client (redirects off) and
+  reads the direct URL from the 302 `Location`. `SolverResult` now also carries
+  the final navigation `url`.
+- `vikingfile` now fails honestly. Its link is gated behind an embedded
+  Cloudflare **Turnstile** widget; FlareSolverr clears Cloudflare's own challenge
+  but does not solve embedded Turnstile widgets, so no token is minted. The
+  recipe returns `needs_interactive` with a clear reason instead of a vague
+  failure. Resolving this host needs a Turnstile-solving service.
+
 ## 0.4.0
 
 ### Added
