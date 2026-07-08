@@ -10,4 +10,4 @@ The version here is the single source of truth and is asserted against
 pyproject.toml in CI, mirroring the launcher's version discipline.
 """
 
-__version__ = "0.3.1"
+__version__ = "0.4.0"

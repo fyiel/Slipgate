@@ -4,6 +4,26 @@ All notable changes to Slipgate, the self-hosted challenge-solving download
 resolver for [Union.Manifold](https://github.com/fyiel/Union.Manifold) and any
 other client.
 
+## 0.4.0
+
+### Added
+
+- three more download recipes, so the launcher resolves these file hosts in-app
+  instead of falling back to a browser: `datavaults` (`datavaults.co`),
+  `vikingfile` (`vikingfile.com`, `vik1ngfile.site`) and `akirabox`
+  (`akirabox.com`). each reuses one warm FlareSolverr session, retries once on a
+  solver error, and returns the direct download URL plus the cookies and
+  User-Agent the browser ended up with
+- the DataVaults recipe drives the XFileSharing two-step free flow through
+  FlareSolverr (download1 -> download2), solving the positional-digit captcha
+  deterministically from the page and honouring the countdown before reading the
+  direct CDN link off the final page
+- the ViKiNG FiLE recipe clears the Cloudflare Turnstile on the file page and
+  reads the direct server link from the populated download button or the
+  download API's JSON
+- the Akira Box recipe queries the public File Status API through the cleared
+  Cloudflare session and returns the file's direct link, name and size
+
 ## 0.3.1
 
 ### Changed
