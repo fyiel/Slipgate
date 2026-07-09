@@ -4,6 +4,18 @@ All notable changes to Slipgate, the self-hosted challenge-solving download
 resolver for [Union.Manifold](https://github.com/fyiel/Union.Manifold) and any
 other client.
 
+## 0.5.1
+
+### Changed
+
+- `POST /fetch` now runs through one warm, shared FlareSolverr session (the same
+  pattern the per-host recipes use) instead of spinning up a fresh browser per
+  call. the first fetch pays the Cloudflare solve; subsequent same-origin fetches
+  reuse the clearance cookie, so a catalogue pull that used to re-solve on every
+  request (~12s each) now solves once and the rest return at page-load speed.
+  requests serialize on the session lock, and a stale session (expiry /
+  FlareSolverr restart) is reset and the fetch retried once.
+
 ## 0.5.0
 
 ### Added

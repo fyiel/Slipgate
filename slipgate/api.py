@@ -20,7 +20,7 @@ from . import __version__
 from .config import Settings, get_settings
 from .models import FetchRequest, FetchResponse, HealthResponse, ResolveRequest, ResolveResponse
 from .recipes import get_recipe, recipe_names
-from .solver import FlareSolverrClient
+from .solver import FlareSolverrClient, SolverError
 
 
 @asynccontextmanager
@@ -94,21 +94,43 @@ def _document_text(response_html: str) -> str:
     return response_html
 
 
+_FETCH_SESSION = "slipgate-fetch"
+
+
 @app.post("/fetch", response_model=FetchResponse, dependencies=[Depends(require_key)])
 async def fetch(req: FetchRequest, settings: Settings = Depends(get_settings)) -> FetchResponse:
     """Fetch a URL through the solver's browser (and proxy, if configured) and
     return its body. Unlike /resolve this runs no per-host recipe: it exists to
     pull a Cloudflare-gated static resource (for example a source catalogue JSON)
-    that a plain HTTP client cannot retrieve from a challenged IP."""
+    that a plain HTTP client cannot retrieve from a challenged IP. All fetches
+    share one warm FlareSolverr session, so the Cloudflare solve is paid once and
+    later same-origin fetches reuse the clearance cookie instead of re-solving.
+    Requests serialize on that session's lock; on a session error (expiry /
+    FlareSolverr restart) the session is reset and the fetch retried once."""
     client = getattr(app.state, "solver", None)
     if client is None:
         return FetchResponse(ok=False, error="solver client is not initialized")
+    result = None
     try:
-        result = await asyncio.wait_for(client.get(req.url), timeout=settings.resolve_timeout_secs)
+        async with client.session_lock(_FETCH_SESSION):
+            for attempt in (1, 2):
+                try:
+                    await client.ensure_session(_FETCH_SESSION)
+                    result = await asyncio.wait_for(
+                        client.get(req.url, session=_FETCH_SESSION),
+                        timeout=settings.resolve_timeout_secs,
+                    )
+                    break
+                except SolverError:
+                    await client.reset_session(_FETCH_SESSION)
+                    if attempt == 2:
+                        raise
     except TimeoutError:
         return FetchResponse(ok=False, error="fetch timed out")
     except Exception as exc:  # noqa: BLE001 - never leak a stack trace to the client
         return FetchResponse(ok=False, error=f"fetch failed: {exc}")
+    if result is None:
+        return FetchResponse(ok=False, error="fetch failed")
     body = _document_text(result.response_text)
     ok = result.status == 200 and bool(body)
     return FetchResponse(

@@ -67,3 +67,15 @@ def test_api_key_enforced(client_factory):
         assert c.post("/resolve", json={"host": "nexusmods"}).status_code == 401
         ok = c.post("/resolve", json={"host": "nope"}, headers={"X-Slipgate-Key": "secret"})
         assert ok.status_code == 200
+
+
+def test_fetch_reuses_warm_session(client_factory):
+    solver = FakeSolverrClient(
+        get_result=SolverResult(status=200, response_text='<pre>{"downloads": []}</pre>')
+    )
+    with client_factory(solver) as c:
+        body = c.post("/fetch", json={"url": "https://hydralinks.cloud/sources/gog.json"}).json()
+    assert body["ok"] is True
+    assert body["body"] == '{"downloads": []}'
+    assert solver.ensured >= 1
+    assert solver.calls == [("get", "https://hydralinks.cloud/sources/gog.json")]
