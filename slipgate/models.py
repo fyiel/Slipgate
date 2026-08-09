@@ -61,6 +61,17 @@ class FetchRequest(BaseModel):
     url: str
 
 
+class MangaFireFetchRequest(BaseModel):
+    # A signed MangaFire API URL or the current public signer bundle. The API
+    # validates the complete destination before using the configured proxy.
+    url: str
+
+
+class MangaFireImageRequest(BaseModel):
+    url: str
+    referer: str
+
+
 class FetchResponse(BaseModel):
     ok: bool
     status: int = 0

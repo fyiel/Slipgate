@@ -13,12 +13,22 @@ import html
 import json
 import re
 from contextlib import asynccontextmanager
+from urllib.parse import urlsplit
 
-from fastapi import Depends, FastAPI, Header, HTTPException
+import httpx
+from fastapi import Depends, FastAPI, Header, HTTPException, Response
 
 from . import __version__
 from .config import Settings, get_settings
-from .models import FetchRequest, FetchResponse, HealthResponse, ResolveRequest, ResolveResponse
+from .models import (
+    FetchRequest,
+    FetchResponse,
+    HealthResponse,
+    MangaFireFetchRequest,
+    MangaFireImageRequest,
+    ResolveRequest,
+    ResolveResponse,
+)
 from .recipes import get_recipe, recipe_names
 from .solver import FlareSolverrClient, SolverError
 
@@ -95,6 +105,12 @@ def _document_text(response_html: str) -> str:
 
 
 _FETCH_SESSION = "slipgate-fetch"
+_MANGAFIRE_API = re.compile(r"^/api/(?:titles(?:/[a-z0-9._-]+(?:/chapters)?)?|chapters/[a-z0-9._-]+)$", re.I)
+_MANGAFIRE_SIGNER = re.compile(r"^/build/mf/assets/polyfill-[a-z0-9_-]+\.js$", re.I)
+_MANGAFIRE_IMAGE_HOST = re.compile(r"(?:^|\.)mfcdn\d*\.xyz$", re.I)
+_MANGAFIRE_REFERER = re.compile(r"^/title/[a-z0-9._-]+(?:-[a-z0-9._-]+)*/chapter/[a-z0-9._-]+$", re.I)
+_MANGAFIRE_MAX_BODY = 6 * 1024 * 1024
+_MANGAFIRE_MAX_IMAGE = 20 * 1024 * 1024
 
 
 @app.post("/fetch", response_model=FetchResponse, dependencies=[Depends(require_key)])
@@ -138,4 +154,142 @@ async def fetch(req: FetchRequest, settings: Settings = Depends(get_settings)) -
         status=result.status,
         body=body,
         error="" if ok else f"upstream status {result.status}",
+    )
+
+
+def _mangafire_target(url: str) -> str | None:
+    if len(url) > 20_000:
+        return None
+    try:
+        target = urlsplit(url)
+        port = target.port
+    except ValueError:
+        return None
+    if (
+        target.scheme != "https"
+        or target.username
+        or target.password
+        or target.fragment
+        or port not in (None, 443)
+    ):
+        return None
+    if target.hostname == "mangafire.to" and _MANGAFIRE_API.fullmatch(target.path):
+        return "api"
+    if target.hostname == "s.mfcdn.nl" and not target.query and _MANGAFIRE_SIGNER.fullmatch(target.path):
+        return "signer"
+    return None
+
+
+@app.post("/mangafire/fetch", response_model=FetchResponse, dependencies=[Depends(require_key)])
+async def mangafire_fetch(
+    req: MangaFireFetchRequest,
+    settings: Settings = Depends(get_settings),
+) -> FetchResponse:
+    """Fetch only MangaFire's signed JSON API or its public signer bundle.
+
+    This deliberately does not extend the generic browser fetch surface. The
+    configured clean-egress proxy can reach these resources with ordinary HTTP
+    even when Chrome/FlareSolverr is challenged, while the strict destination
+    allowlist prevents the endpoint becoming an SSRF or open-proxy primitive.
+    """
+    target_type = _mangafire_target(req.url)
+    if target_type is None:
+        return FetchResponse(ok=False, error="unrecognized MangaFire resource")
+    if not settings.proxy_url:
+        return FetchResponse(ok=False, error="MangaFire proxy is not configured")
+
+    try:
+        async with httpx.AsyncClient(
+            proxy=settings.proxy_url,
+            timeout=30.0,
+            follow_redirects=False,
+        ) as client:
+            response = await client.get(req.url, headers={
+                "accept": "application/json" if target_type == "api" else "application/javascript",
+                "referer": "https://mangafire.to/",
+                "x-requested-with": "XMLHttpRequest",
+            })
+    except httpx.HTTPError:
+        return FetchResponse(ok=False, error="MangaFire proxy request failed")
+
+    body = response.text
+    if len(response.content) > _MANGAFIRE_MAX_BODY:
+        return FetchResponse(ok=False, status=response.status_code, error="MangaFire response too large")
+    if response.status_code != 200 or not body:
+        return FetchResponse(
+            ok=False,
+            status=response.status_code,
+            error=f"upstream status {response.status_code}",
+        )
+    if target_type == "api":
+        try:
+            json.loads(body)
+        except ValueError:
+            return FetchResponse(
+                ok=False,
+                status=response.status_code,
+                error="MangaFire returned a challenge",
+            )
+
+    return FetchResponse(ok=True, status=response.status_code, body=body)
+
+
+def _mangafire_image_target(url: str, referer: str) -> bool:
+    if len(url) > 20_000 or len(referer) > 2_000:
+        return False
+    try:
+        target = urlsplit(url)
+        source = urlsplit(referer)
+        ports = (target.port, source.port)
+    except ValueError:
+        return False
+    return (
+        target.scheme == "https"
+        and bool(target.hostname and _MANGAFIRE_IMAGE_HOST.search(target.hostname))
+        and not target.username
+        and not target.password
+        and not target.fragment
+        and ports[0] in (None, 443)
+        and source.scheme == "https"
+        and source.hostname == "mangafire.to"
+        and not source.username
+        and not source.password
+        and not source.query
+        and not source.fragment
+        and ports[1] in (None, 443)
+        and bool(_MANGAFIRE_REFERER.fullmatch(source.path))
+    )
+
+
+@app.post("/mangafire/image", dependencies=[Depends(require_key)])
+async def mangafire_image(
+    req: MangaFireImageRequest,
+    settings: Settings = Depends(get_settings),
+) -> Response:
+    if not _mangafire_image_target(req.url, req.referer):
+        raise HTTPException(status_code=400, detail="unrecognized MangaFire image")
+    if not settings.proxy_url:
+        raise HTTPException(status_code=503, detail="MangaFire proxy is not configured")
+    try:
+        async with httpx.AsyncClient(
+            proxy=settings.proxy_url,
+            timeout=30.0,
+            follow_redirects=False,
+        ) as client:
+            upstream = await client.get(req.url, headers={
+                "accept": "image/avif,image/webp,image/*,*/*;q=0.8",
+                "referer": req.referer,
+            })
+    except httpx.HTTPError as exc:
+        raise HTTPException(status_code=502, detail="MangaFire image request failed") from exc
+
+    content_type = upstream.headers.get("content-type", "")
+    if upstream.status_code != 200 or not content_type.startswith("image/"):
+        raise HTTPException(status_code=502, detail="MangaFire image unavailable")
+    if len(upstream.content) > _MANGAFIRE_MAX_IMAGE:
+        raise HTTPException(status_code=502, detail="MangaFire image too large")
+    return Response(
+        content=upstream.content,
+        media_type=content_type,
+        headers={"cache-control": "public, max-age=14400"},
     )
