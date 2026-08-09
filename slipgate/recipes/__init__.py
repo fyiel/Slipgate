@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from .akirabox import AkiraBoxRecipe
 from .base import Recipe
+from .datanodes import DataNodesRecipe
 from .datavaults import DataVaultsRecipe
 from .nexus import NexusRecipe
 from .vikingfile import VikingFileRecipe
@@ -30,6 +31,7 @@ def recipe_names() -> list[str]:
 
 
 register(NexusRecipe())
+register(DataNodesRecipe())
 register(DataVaultsRecipe())
 register(VikingFileRecipe())
 register(AkiraBoxRecipe())

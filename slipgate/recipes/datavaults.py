@@ -24,11 +24,11 @@ from __future__ import annotations
 import asyncio
 import html
 import re
-from urllib.parse import urlencode, urlsplit
+from urllib.parse import urlencode, urljoin, urlsplit
 
 import httpx
 
-from ..models import ResolveRequest, ResolveResponse
+from ..models import Cookie, ResolveRequest, ResolveResponse
 from ..solver import FlareSolverrClient, SolverError
 from .base import Recipe
 
@@ -62,6 +62,11 @@ _EXT_HREF_RE = re.compile(
 )
 
 
+def _absolute_redirect(base: str, value: str) -> str:
+    resolved = urljoin(base, value)
+    return resolved if urlsplit(resolved).scheme in {"http", "https"} else ""
+
+
 class DataVaultsRecipe(Recipe):
     name = "datavaults"
     hosts = ("datavaults", "datavaults.co")
@@ -81,11 +86,13 @@ class DataVaultsRecipe(Recipe):
         # plain-client form POSTs below present a matching, cleared session. If
         # the solver is down, proceed anyway: DataVaults is normally un-gated.
         ua, seed = DEFAULT_UA, {}
+        replay_cookies: list[Cookie] = []
         try:
             async with client.session_lock(self.SESSION):
                 await client.ensure_session(self.SESSION)
                 warm = await client.get(req.page_url, session=self.SESSION)
             ua = warm.user_agent or DEFAULT_UA
+            replay_cookies = warm.cookies
             seed = {c.name: c.value for c in warm.cookies}
         except SolverError:
             pass
@@ -95,7 +102,13 @@ class DataVaultsRecipe(Recipe):
         except httpx.HTTPError as exc:
             return ResolveResponse(ok=False, error=f"datavaults request failed: {exc}")
         if url:
-            return ResolveResponse(ok=True, download_url=url, file_name=fname, user_agent=ua)
+            return ResolveResponse(
+                ok=True,
+                download_url=url,
+                file_name=fname,
+                cookies=replay_cookies,
+                user_agent=ua,
+            )
         return ResolveResponse(ok=False, error=reason, needs_interactive=False)
 
 
@@ -146,7 +159,9 @@ async def _form_flow(
         if r2.status_code in (301, 302, 303, 307, 308):
             loc = r2.headers.get("location", "")
             if loc:
-                return (loc, "")
+                direct = _absolute_redirect(str(r2.url), loc)
+                if direct:
+                    return (direct, "")
         direct = _direct_url(r2.text, page_url)
         return (direct, "") if direct else ("", _reason(r2.text))
 

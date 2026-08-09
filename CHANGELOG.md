@@ -4,6 +4,23 @@ All notable changes to Slipgate, the self-hosted challenge-solving download
 resolver for [Union.Manifold](https://github.com/fyiel/Union.Manifold) and any
 other client.
 
+## 0.5.2
+
+### Added
+
+- A `datanodes` recipe clears Cloudflare through the shared FlareSolverr
+  session, then replays the free-download request with the solved cookies and
+  browser User-Agent.
+
+### Fixed
+
+- DataNodes and DataVaults preserve solver session material on the returned
+  download and safely resolve relative redirects without accepting non-HTTP
+  targets.
+- Nexus warms the file page before requesting a free download, waits out the
+  countdown, retries transient challenge responses, and reports expired
+  sessions and repeated Cloudflare challenges clearly.
+
 ## 0.5.1
 
 ### Changed

@@ -10,8 +10,17 @@ from __future__ import annotations
 import httpx
 import pytest
 
+from slipgate.models import Cookie
 from slipgate.recipes import datavaults
-from slipgate.recipes.datavaults import DataVaultsRecipe, _direct_url, _solve_captcha, _wait_secs
+from slipgate.recipes.datavaults import (
+    DataVaultsRecipe,
+    _absolute_redirect,
+    _direct_url,
+    _form_flow,
+    _solve_captcha,
+    _wait_secs,
+)
+from slipgate.solver import SolverResult
 from tests.conftest import FakeSolverrClient
 
 RECIPE = DataVaultsRecipe()
@@ -54,10 +63,21 @@ def _patch_flow(monkeypatch, result=None, exc=None):
 
 async def test_resolve_returns_direct_cdn_url(monkeypatch):
     _patch_flow(monkeypatch, result=(DIRECT, ""))
-    res = await RECIPE.resolve(FakeSolverrClient(), _req())
+    solved = Cookie(name="cf_clearance", value="fresh", domain=".datavaults.co")
+    client = FakeSolverrClient(
+        get_result=SolverResult(
+            status=200,
+            response_text="<html></html>",
+            cookies=[solved],
+            user_agent="Solved Browser",
+        )
+    )
+    res = await RECIPE.resolve(client, _req())
     assert res.ok
     assert res.download_url == DIRECT
     assert res.file_name == "game.zip"
+    assert res.cookies == [solved]
+    assert res.user_agent == "Solved Browser"
 
 
 async def test_missing_page_url_fails_fast():
@@ -96,6 +116,34 @@ async def test_solver_down_still_resolves(monkeypatch):
     assert res.download_url == DIRECT
 
 
+async def test_form_flow_joins_relative_redirect(monkeypatch, fast_wait):
+    calls = 0
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal calls
+        calls += 1
+        if request.method == "GET":
+            return httpx.Response(200, text="ok", request=request)
+        if calls == 2:
+            return httpx.Response(
+                200,
+                text='<input name="rand" value="token"><span style="padding-left:10px;">1</span>',
+                request=request,
+            )
+        return httpx.Response(302, headers={"Location": "/d/token/game.zip"}, request=request)
+
+    real_client = httpx.AsyncClient
+
+    def fake_client(**kwargs):
+        return real_client(transport=httpx.MockTransport(handler), **kwargs)
+
+    monkeypatch.setattr(datavaults.httpx, "AsyncClient", fake_client)
+    direct, reason = await _form_flow(PAGE, "9rmy4t6thhaq", "game.zip", "Solved Browser", {})
+
+    assert reason == ""
+    assert direct == "https://datavaults.co/d/token/game.zip"
+
+
 def test_solve_captcha_orders_by_padding():
     assert _solve_captcha(DOWNLOAD2_PAGE) == "1234"
     assert _solve_captcha("<html></html>") == ""
@@ -112,3 +160,8 @@ def test_direct_url_prefers_token_link_and_skips_page_url():
 def test_wait_secs_floor_and_cap(fast_wait):
     # With floor/cap zeroed, the parsed value passes through clamped to <= cap 0.
     assert _wait_secs(DOWNLOAD2_PAGE) == 0.0
+
+
+def test_redirects_are_absolute_http_urls():
+    assert _absolute_redirect(PAGE, "/d/token/game.zip") == "https://datavaults.co/d/token/game.zip"
+    assert _absolute_redirect(PAGE, "javascript:alert(1)") == ""

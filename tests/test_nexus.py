@@ -12,6 +12,8 @@ from tests.conftest import FakeSolverrClient
 RECIPE = NexusRecipe()
 PARAMS = {"domain": "skyrimspecialedition", "mod_id": "266", "file_id": "1000", "game_id": "1704"}
 SESSION = [Cookie(name="nexusmods_session", value="abc")]
+CDN_URI = "https://cdn.nexus/file.zip?token=tok123456"
+FILE_PAGE = "https://www.nexusmods.com/skyrimspecialedition/mods/266?tab=files&file_id=1000"
 
 
 def _req(**over) -> ResolveRequest:
@@ -25,20 +27,24 @@ async def test_resolve_returns_generated_cdn_url():
     client = FakeSolverrClient(
         post_result=SolverResult(
             status=200,
-            response_text='<pre>[{"name":"Nexus CDN","URI":"https://cdn.nexus/file.zip?token=x"}]</pre>',
+            response_text=f'<pre>[{{"name":"Nexus CDN","URI":"{CDN_URI}"}}]</pre>',
             cookies=[Cookie(name="cf_clearance", value="fresh")],
             user_agent="Chrome/Real",
         )
     )
     res = await RECIPE.resolve(client, _req())
     assert res.ok
-    assert res.download_url == "https://cdn.nexus/file.zip?token=x"
+    assert res.download_url == CDN_URI
     assert res.user_agent == "Chrome/Real"
     assert any(c.name == "cf_clearance" for c in res.cookies)
     # The recipe ensures (reuses) a warm session and never tears it down per call.
     assert client.ensured == 1 and client.reset == 0
-    # Fast path: one direct POST to the generate endpoint, no page visit.
-    assert client.calls == [("post", GENERATE_URL, "fid=1000&game_id=1704")]
+    # Warm the browser on the file page first (mints clearance + starts the
+    # countdown), then POST the generate endpoint.
+    assert client.calls == [
+        ("get", FILE_PAGE),
+        ("post", GENERATE_URL, "fid=1000&game_id=1704"),
+    ]
 
 
 @pytest.mark.usefixtures("fast_wait")
@@ -71,9 +77,12 @@ async def test_solver_error_surfaces():
 
 
 def test_extract_uri_variants():
-    assert _extract_uri('<pre>[{"URI":"u"}]</pre>') == "u"
+    assert _extract_uri(f'<pre>[{{"URI":"{CDN_URI}"}}]</pre>') == CDN_URI
     # HTML-entity-escaped ampersands in the URI are unescaped.
-    assert _extract_uri('<pre>[{"URI":"https://c/f?a=1&amp;b=2"}]</pre>') == "https://c/f?a=1&b=2"
+    assert (
+        _extract_uri('<pre>[{"URI":"https://c/f?a=1&amp;b=2"}]</pre>')
+        == "https://c/f?a=1&b=2"
+    )
     assert _extract_uri("<pre>[]</pre>") == ""
     assert _extract_uri('[{"URI":"raw"}]') == "raw"
     assert _extract_uri("not json") == ""
