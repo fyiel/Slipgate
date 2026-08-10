@@ -24,10 +24,14 @@ from html import unescape
 
 from ..models import Cookie, ResolveRequest, ResolveResponse
 from ..solver import FlareSolverrClient, SolverError, SolverResult
+from ..urlcheck import validate_url
 from .base import Recipe
 
 WWW = "https://www.nexusmods.com"
 GENERATE_URL = f"{WWW}/Core/Libs/Common/Managers/Downloads?GenerateDownloadUrl"
+
+# Exact host allowlist for the file page the browser is warmed on (SSRF guard).
+_HOSTS = {"www.nexusmods.com", "nexusmods.com"}
 
 # Nexus enforces a short countdown before the free generate call succeeds. It
 # starts when the file page finishes loading in the browser, so the recipe waits
@@ -66,6 +70,8 @@ class NexusRecipe(Recipe):
         cookies = [Cookie(name=c.name, value=c.value, domain=".nexusmods.com", path="/") for c in req.cookies]
 
         file_page = req.page_url or f"{WWW}/{domain}/mods/{mod_id}?tab=files&file_id={file_id}"
+        if not await validate_url(file_page, _HOSTS):
+            return ResolveResponse(ok=False, error="unrecognized nexusmods url")
         body = f"fid={file_id}&game_id={game_id}"
 
         res: SolverResult | None = None

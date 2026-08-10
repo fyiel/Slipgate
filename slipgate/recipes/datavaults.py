@@ -30,7 +30,13 @@ import httpx
 
 from ..models import Cookie, ResolveRequest, ResolveResponse
 from ..solver import FlareSolverrClient, SolverError
+from ..urlcheck import validate_url
 from .base import Recipe
+
+# Exact host allowlist for the caller-supplied page URL (SSRF guard). Both the
+# solver-warm GET and the plain-client _form_flow consume req.page_url, so a
+# single guard before them covers the whole resolve.
+_HOSTS = {"datavaults.co"}
 
 # Fallback UA when FlareSolverr is unavailable; DataVaults is normally un-gated.
 DEFAULT_UA = (
@@ -76,6 +82,8 @@ class DataVaultsRecipe(Recipe):
     async def resolve(self, client: FlareSolverrClient, req: ResolveRequest) -> ResolveResponse:
         if not req.page_url:
             return ResolveResponse(ok=False, error="missing page_url")
+        if not await validate_url(req.page_url, _HOSTS):
+            return ResolveResponse(ok=False, error="unrecognized datavaults url")
         parts = urlsplit(req.page_url)
         segs = [s for s in parts.path.split("/") if s]
         if not parts.netloc or len(segs) < 2:

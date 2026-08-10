@@ -37,6 +37,7 @@ from .models import (
 )
 from .recipes import get_recipe, recipe_names
 from .solver import FlareSolverrClient, SolverError
+from .urlcheck import validate_url
 
 
 @asynccontextmanager
@@ -142,6 +143,9 @@ async def fetch(req: FetchRequest, settings: Settings = Depends(get_settings)) -
     client = getattr(app.state, "solver", None)
     if client is None:
         return FetchResponse(ok=False, error="solver client is not initialized")
+    allowed = {h.strip().lower() for h in settings.fetch_allowed_hosts.split(",") if h.strip()}
+    if not allowed or not await validate_url(req.url, allowed, max_length=20_000):
+        return FetchResponse(ok=False, error="fetch url not allowed")
     result = None
     try:
         async with client.session_lock(_FETCH_SESSION):

@@ -23,7 +23,11 @@ import re
 
 from ..models import ResolveRequest, ResolveResponse
 from ..solver import FlareSolverrClient, SolverError
+from ..urlcheck import validate_url
 from .base import Recipe
+
+# Exact host allowlist for the caller-supplied page URL (SSRF guard).
+_HOSTS = {"vikingfile.com", "vik1ngfile.site"}
 
 # The page's own download XHR body. FlareSolverr supplies the cleared Turnstile
 # context; the token itself is minted by the browser, not by us.
@@ -45,6 +49,8 @@ class VikingFileRecipe(Recipe):
     async def resolve(self, client: FlareSolverrClient, req: ResolveRequest) -> ResolveResponse:
         if not req.page_url:
             return ResolveResponse(ok=False, error="missing page_url")
+        if not await validate_url(req.page_url, _HOSTS):
+            return ResolveResponse(ok=False, error="unrecognized vikingfile url")
         file_url = req.page_url
 
         async with client.session_lock(self.SESSION):

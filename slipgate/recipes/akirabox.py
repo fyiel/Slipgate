@@ -23,9 +23,13 @@ from urllib.parse import quote, urlsplit
 
 from ..models import ResolveRequest, ResolveResponse
 from ..solver import FlareSolverrClient, SolverError
+from ..urlcheck import validate_url
 from .base import Recipe
 
 API = "https://akirabox.com/api/files"
+
+# Exact host allowlist for the caller-supplied page URL (SSRF guard).
+_HOSTS = {"akirabox.com"}
 
 _PRE_RE = re.compile(r"<pre[^>]*>(.*?)</pre>", re.DOTALL | re.IGNORECASE)
 # The public File Status API reports size as a display string (e.g. "1.2 MB").
@@ -42,6 +46,8 @@ class AkiraBoxRecipe(Recipe):
     async def resolve(self, client: FlareSolverrClient, req: ResolveRequest) -> ResolveResponse:
         if not req.page_url:
             return ResolveResponse(ok=False, error="missing page_url")
+        if not await validate_url(req.page_url, _HOSTS):
+            return ResolveResponse(ok=False, error="unrecognized akirabox url")
         canonical = _canonical(req.page_url)
         if not canonical:
             return ResolveResponse(ok=False, error="unrecognized akirabox url")
@@ -75,14 +81,19 @@ class AkiraBoxRecipe(Recipe):
 
 
 def _canonical(page_url: str) -> str:
-    """Normalize a hoster page URL to Akira Box's canonical /<file_code>/file form."""
+    """Normalize a hoster page URL to Akira Box's canonical /<file_code>/file form.
+
+    The emitted URL always uses ``https://akirabox.com``: the caller's scheme
+    and netloc are never echoed back, so an ``ftp://`` or attacker netloc can
+    never leak into the API query. A bare path is not a URL.
+    """
     parts = urlsplit(page_url)
     if not parts.netloc:
         return ""
     segs = [s for s in parts.path.split("/") if s]
     if not segs:
         return ""
-    return f"{parts.scheme or 'https'}://{parts.netloc}/{segs[0]}/file"
+    return f"https://akirabox.com/{segs[0]}/file"
 
 
 def _json(text: str):

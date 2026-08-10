@@ -44,6 +44,9 @@ class Settings(BaseSettings):
     # Ceiling on concurrent resolves so a burst cannot exhaust FlareSolverr.
     max_concurrency: int = 2
 
+    # Comma-separated exact host allowlist for POST /fetch. Empty disables /fetch.
+    fetch_allowed_hosts: str = "hydralinks.cloud"
+
     log_level: str = "info"
 
 

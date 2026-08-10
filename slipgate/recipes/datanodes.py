@@ -24,7 +24,11 @@ import httpx
 
 from ..models import Cookie, ResolveRequest, ResolveResponse
 from ..solver import FlareSolverrClient, SolverError
+from ..urlcheck import validate_url
 from .base import Recipe
+
+# Exact host allowlist for the caller-supplied page URL (SSRF guard).
+_HOSTS = {"datanodes.to"}
 
 # Fallback UA when FlareSolverr is unavailable; DataNodes is normally un-gated.
 DEFAULT_UA = (
@@ -54,6 +58,8 @@ class DataNodesRecipe(Recipe):
     async def resolve(self, client: FlareSolverrClient, req: ResolveRequest) -> ResolveResponse:
         if not req.page_url:
             return ResolveResponse(ok=False, error="missing page_url")
+        if not await validate_url(req.page_url, _HOSTS):
+            return ResolveResponse(ok=False, error="unrecognized datanodes url")
         parts = urlsplit(req.page_url)
         segs = [s for s in parts.path.split("/") if s]
         if not parts.netloc or not segs:
