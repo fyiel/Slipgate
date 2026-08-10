@@ -74,6 +74,42 @@ async def test_solver_error_on_get_surfaces():
     assert "boom" in res.error
 
 
+# File Status API JSON for the canonical-host happy path.
+ABC123_JSON = (
+    '<pre>{"status":200,"name":"example.rar","size":"1.2 MB","type":"file",'
+    '"mime":"application/x-rar","url":"https:\\/\\/akirabox.com\\/ABC123\\/file"}</pre>'
+)
+
+
+async def test_resolve_accepts_canonical_host():
+    client = FakeSolverrClient(get_result=SolverResult(status=200, response_text=ABC123_JSON))
+    res = await RECIPE.resolve(client, _req(page_url="https://akirabox.com/ABC123"))
+    assert res.ok
+    assert res.download_url == "https://akirabox.com/ABC123/file"
+    assert client.calls == [
+        ("get", "https://akirabox.com/api/files?url=https%3A%2F%2Fakirabox.com%2FABC123%2Ffile")
+    ]
+
+
+async def test_metadata_url_rejected_before_solver():
+    client = FakeSolverrClient()
+    res = await RECIPE.resolve(client, _req(page_url="https://169.254.169.254/latest/meta-data/"))
+    assert not res.ok
+    assert client.calls == []
+
+
+async def test_non_https_page_url_rejected_as_unrecognized():
+    res = await RECIPE.resolve(FakeSolverrClient(), _req(page_url="ftp://evil.com/x"))
+    assert not res.ok
+    assert res.error == "unrecognized akirabox url"
+
+
+async def test_foreign_host_page_url_rejected_as_unrecognized():
+    res = await RECIPE.resolve(FakeSolverrClient(), _req(page_url="https://evil.com/x"))
+    assert not res.ok
+    assert res.error == "unrecognized akirabox url"
+
+
 def test_canonical_normalizes_url():
     assert _canonical("https://akirabox.com/abc123") == "https://akirabox.com/abc123/file"
     assert _canonical("https://akirabox.com/abc123/file") == "https://akirabox.com/abc123/file"

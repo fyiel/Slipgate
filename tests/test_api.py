@@ -85,6 +85,26 @@ def test_fetch_reuses_warm_session(client_factory):
     assert solver.calls == [("get", "https://hydralinks.cloud/sources/gog.json")]
 
 
+def test_fetch_rejects_urls_not_on_allowlist(client_factory):
+    solver = FakeSolverrClient()
+    with client_factory(solver) as c:
+        for url in (
+            "file:///etc/passwd",
+            "http://169.254.169.254/latest/meta-data/",
+            "https://hydralinks.cloud.evil.com/",
+            "https://evil.com/",
+        ):
+            response = c.post("/fetch", json={"url": url})
+            assert response.status_code == 200
+            body = response.json()
+            assert body["ok"] is False
+            assert body["status"] == 0
+            assert body["body"] == ""
+            assert body["error"] == "fetch url not allowed"
+    assert solver.calls == []
+    assert solver.ensured == 0
+
+
 def test_mangafire_fetch_uses_proxy_and_rejects_other_destinations(client_factory, monkeypatch):
     seen = []
     real_client = httpx.AsyncClient

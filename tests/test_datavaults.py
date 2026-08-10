@@ -116,6 +116,22 @@ async def test_solver_down_still_resolves(monkeypatch):
     assert res.download_url == DIRECT
 
 
+async def test_resolve_accepts_canonical_host(monkeypatch):
+    _patch_flow(monkeypatch, result=(DIRECT, ""))
+    client = FakeSolverrClient()
+    res = await RECIPE.resolve(client, _req(page_url="https://datavaults.co/id/fname"))
+    assert res.ok
+    assert res.download_url == DIRECT
+
+
+async def test_metadata_url_rejected_before_solver(monkeypatch):
+    _patch_flow(monkeypatch, result=(DIRECT, ""))
+    client = FakeSolverrClient()
+    res = await RECIPE.resolve(client, _req(page_url="https://169.254.169.254/latest/meta-data/"))
+    assert not res.ok
+    assert client.calls == []
+
+
 async def test_form_flow_joins_relative_redirect(monkeypatch, fast_wait):
     calls = 0
 

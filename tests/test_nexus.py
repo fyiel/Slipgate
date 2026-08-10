@@ -76,6 +76,33 @@ async def test_solver_error_surfaces():
     assert "boom" in res.error
 
 
+@pytest.mark.usefixtures("fast_wait")
+async def test_resolve_accepts_canonical_host():
+    client = FakeSolverrClient(
+        post_result=SolverResult(
+            status=200,
+            response_text=f'<pre>[{{"name":"Nexus CDN","URI":"{CDN_URI}"}}]</pre>',
+        )
+    )
+    res = await RECIPE.resolve(
+        client, _req(page_url="https://www.nexusmods.com/mods/1?tab=files&file_id=2")
+    )
+    assert res.ok
+    assert res.download_url == CDN_URI
+    assert client.calls == [
+        ("get", "https://www.nexusmods.com/mods/1?tab=files&file_id=2"),
+        ("post", GENERATE_URL, "fid=1000&game_id=1704"),
+    ]
+
+
+@pytest.mark.usefixtures("fast_wait")
+async def test_foreign_host_page_url_rejected_before_solver():
+    client = FakeSolverrClient()
+    res = await RECIPE.resolve(client, _req(page_url="https://evil.com/mods/1"))
+    assert not res.ok
+    assert client.calls == []
+
+
 def test_extract_uri_variants():
     assert _extract_uri(f'<pre>[{{"URI":"{CDN_URI}"}}]</pre>') == CDN_URI
     # HTML-entity-escaped ampersands in the URI are unescaped.

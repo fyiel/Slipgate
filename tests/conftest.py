@@ -13,6 +13,26 @@ import pytest
 from slipgate.solver import SolverError, SolverResult
 
 
+def _fake_getaddrinfo(host, port, family=0, type=0, proto=0, flags=0):
+    """Never touch real DNS: resolve every host to one public IP."""
+    return [("AF_INET", "SOCK_STREAM", 6, "", ("93.184.216.34", port or 443))]
+
+
+@pytest.fixture(autouse=True)
+def _no_real_dns(monkeypatch):
+    """Stub urlcheck._getaddrinfo so no test triggers real DNS.
+
+    The URL guard module does not exist until the C1/C2 fix lands, so the import
+    is deferred and guarded: pre-fix the fixture is a no-op and collection keeps
+    working; post-fix every test resolves through the fake getaddrinfo.
+    """
+    try:
+        import slipgate.urlcheck as urlcheck
+    except ImportError:
+        return
+    monkeypatch.setattr(urlcheck, "_getaddrinfo", _fake_getaddrinfo)
+
+
 class FakeSolverrClient:
     def __init__(
         self,

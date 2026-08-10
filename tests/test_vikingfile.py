@@ -92,6 +92,24 @@ async def test_solver_error_on_get_surfaces():
     assert "boom" in res.error
 
 
+async def test_resolve_accepts_canonical_host():
+    client = FakeSolverrClient(post_result=SolverResult(status=200, response_text=POST_JSON))
+    res = await RECIPE.resolve(client, _req(page_url="https://vikingfile.com/f/abc123"))
+    assert res.ok
+    assert res.download_url == "https://s5.vikingfile.com/download/abc"
+    assert client.calls == [
+        ("get", "https://vikingfile.com/f/abc123"),
+        ("post", "https://vikingfile.com/f/abc123", "cf-turnstile-response=&ipv4=&ipv6="),
+    ]
+
+
+async def test_metadata_url_rejected_before_solver():
+    client = FakeSolverrClient()
+    res = await RECIPE.resolve(client, _req(page_url="https://169.254.169.254/latest/meta-data/"))
+    assert not res.ok
+    assert client.calls == []
+
+
 def test_extract_variants():
     got = _extract(POST_JSON)
     assert got == {"link": "https://s5.vikingfile.com/download/abc", "name": "game.zip", "size": 12345}
