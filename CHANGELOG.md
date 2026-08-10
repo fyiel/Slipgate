@@ -11,6 +11,9 @@ other client.
 - A `datanodes` recipe clears Cloudflare through the shared FlareSolverr
   session, then replays the free-download request with the solved cookies and
   browser User-Agent.
+- Miruro's current `pewe` transport: scoped AniDB App metadata/source endpoints
+  and short-lived HLS media capabilities with playlist confinement, Range
+  support, response-size limits, and CORS on success and error responses.
 
 ### Fixed
 

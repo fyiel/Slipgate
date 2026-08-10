@@ -8,6 +8,8 @@ them if the file host also checks them.
 
 from __future__ import annotations
 
+from typing import Literal
+
 from pydantic import BaseModel, Field
 
 
@@ -65,6 +67,29 @@ class MangaFireFetchRequest(BaseModel):
     # A signed MangaFire API URL or the current public signer bundle. The API
     # validates the complete destination before using the configured proxy.
     url: str
+
+
+class AniDbFetchRequest(BaseModel):
+    # An AniDB App browse, episode, language, or embed URL. The API validates
+    # the complete destination before opening it in the warmed browser.
+    url: str
+
+
+class AniDbSourceRequest(BaseModel):
+    # Miruro's current `pewe` IDs decode to anidbapp:<series>:<episode>.
+    series_id: int = Field(gt=0, le=10_000_000)
+    episode_id: int = Field(gt=0, le=10_000_000)
+    language: Literal["sub", "dub"] = "sub"
+
+
+class AniDbSourceResponse(BaseModel):
+    ok: bool
+    status: int = 0
+    provider: str = ""
+    category: str = ""
+    source_id: str = ""
+    media_path: str = ""
+    error: str = ""
 
 
 class MangaFireImageRequest(BaseModel):

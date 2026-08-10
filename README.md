@@ -68,6 +68,15 @@ never paste `cf_clearance`; FlareSolverr mints it. `cookies` in the response are
 what the browser held after clearing the gate, so a caller that downloads the URL
 itself can present a matching session if the file host also checks it.
 
+### Miruro `pewe` transport
+
+`POST /anidb/fetch` accepts only AniDB App browse, episode, language, and embed
+URLs. `POST /anidb/source` accepts the numeric series/episode IDs captured from
+Miruro's current `pewe` provider and returns a short-lived local media path.
+`GET /anidb/media/{capability}/{path}` proxies only that resolved HLS tree,
+rewrites playlists to stay inside it, forwards byte ranges, caps response sizes,
+and returns CORS headers. All three routes honor `X-Slipgate-Key`.
+
 ## Configuration
 
 All settings are read from the environment with the `SLIPGATE_` prefix (or a
