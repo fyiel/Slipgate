@@ -4,6 +4,16 @@ All notable changes to Slipgate, the self-hosted challenge-solving download
 resolver for [Union.Manifold](https://github.com/fyiel/Union.Manifold) and any
 other client.
 
+## Unreleased
+
+### Fixed
+
+- SSRF hardening (C1/C2): `POST /fetch` is constrained to a comma-separated
+  exact-host allowlist (`SLIPGATE_FETCH_ALLOWED_HOSTS`, default
+  `hydralinks.cloud`; empty disables `/fetch`) enforced by the new `urlcheck`
+  module, and every per-host recipe guards its `page_url` against
+  non-allowlisted hosts and unexpected redirects.
+
 ## 0.5.2
 
 ### Added

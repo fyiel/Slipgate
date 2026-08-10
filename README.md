@@ -91,6 +91,7 @@ All settings are read from the environment with the `SLIPGATE_` prefix (or a
 | `SLIPGATE_FLARESOLVERR_TIMEOUT_MS` | `60000` | Per-request maxTimeout handed to FlareSolverr. |
 | `SLIPGATE_RESOLVE_TIMEOUT_SECS` | `150` | Overall per-request ceiling. |
 | `SLIPGATE_MAX_CONCURRENCY` | `2` | Concurrent resolves. |
+| `SLIPGATE_FETCH_ALLOWED_HOSTS` | `hydralinks.cloud` | Comma-separated exact-host allowlist for `POST /fetch` (empty disables `/fetch`). |
 
 ## Security
 
