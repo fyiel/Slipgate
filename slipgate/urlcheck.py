@@ -50,10 +50,6 @@ async def validate_url(url: str, allowed_hosts: set[str], *, max_length: int = 2
         host = host[:-1]
     if not host:
         return False
-    try:
-        host = host.encode("idna").decode("ascii")
-    except UnicodeError:
-        return False
     if not re.fullmatch(r"[a-z0-9.-]+", host):
         return False
     if host not in allowed_hosts:
