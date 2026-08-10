@@ -4,7 +4,7 @@ All notable changes to Slipgate, the self-hosted challenge-solving download
 resolver for [Union.Manifold](https://github.com/fyiel/Union.Manifold) and any
 other client.
 
-## Unreleased
+## 0.5.3
 
 ### Fixed
 
